@@ -1,25 +1,27 @@
 # WebAssembly Content Security Policy
 
-This proposal attempts to homogenize existing WebAssembly implementation's
-handling of Content Security Policy (CSP).
+This proposal describes a recommendation to the WebAppSec WG to extend Content Security Policy
+(CSP) to support compiling and executing WebAssembly modules.
 
-It also attempts to extend CSP to better support WebAssemble use cases.
+## Background: Security and WebAssembly
 
-## Background: CSP Threat Model and Use Cases
+WebAssembly has a sandbox-style security model which focuses on limiting the potential damage a WebAssembly module can do to its host environment. This means that a WebAssembly module cannot invoke any functions from the host other than those explicitly passed to it via imports. Similarly, a WebAssembly module cannot directly access the evaluation stack; which also limits the potential for attacks based on buffer-overflows.
 
-This section describes the attacks that CSP is meant to protect
-against. WebAssembly's handling of CSP should respect this threat model.
+This does not, however, provide any guarantees that WebAssembly modules compute correct results: it is still possible that an incorrectly programmed module may corrupt data, produce invalid results and be subject to buffer-overflows that corrupt memory. Since the memory used by a WebAssembly module may be shared via ArrayBuffers and SharedArrayBuffers these faults may be visible to and affect other WebAssembly and JavaScript modules that also share the same memory. Other memory faults - such as use-after-free and accessing uninitialized memory - are also similarly not protected against.
+
+In addition, the security model does not manage _which_ WebAssembly modules are executed; a malicious module may be completely safe in terms of the resources from the host that it uses and still cause significant harm to the user. Controlling which WebAssembly modules are executed is the primary focus of this note.
+
+### CSP Threat Model and Use Cases
 
 CSP, broadly, allows developers to control what resources can be loaded as part
 of a site. These resources can include images, audio, video, or scripts. Loading
 untrusted resources can lead to a variety of undesirable outcomes. Malicious
 scripts could exfiltrate data from the site. Images could display misleading or
 incorrect information. Fetching resources leaks information about the user to
-untrusted third parties.
+untrusted third parties. [
 
-While these threats could be protected against in other ways, CSP allows a small
-set of security experts to define a comprehensive policy in one place to prevent
-accidentally loading untrusted resources into the site.
+This document describes a recommendation for how policy for handling
+WebAssembly resources (modules) can be incorporated into CSP.
 
 ### Out of Scope Threats
 
@@ -32,21 +34,10 @@ accidentally loading untrusted resources into the site.
   first order consideration for CSP. Scripts are dangerous not because of their
   resource consumption but because of other effects that can cause.
 
-
 ## WebAssembly and CSP
 
-A WebAssembly Instance is made up of the code, or Wasm bytes, and an import
-object. The import object defines the capabilities of the instance, and
-therefore the worst case security behavior. An instance with an empty import
-object cannot cause any effects and is therefore safe to run. If it were
-possible to vet the import object, it would be safe to create instances and run
-from untrusted Wasm code because the behavior of the code would be bounded by
-the capabilities of the import object. In practice, vetting an import object is
-extremely difficult in JavaScript; it is easy to accidentally give access to the
-global object.
-
-CSP turns the problem around. Assuming unrestricted capabilities, what code is
-the developer willing to run on their site? Thus for WebAssembly, CSP will be
+Rather than focusing on the risks associated with imports and shared memory, CSP
+allows developers to manage what code they are willing to run on their site. CSP will be
 used to define what sources for Wasm bytes are trusted to instantiate and run.
 
 ### Summary of WebAssembly APIs and Their Risks
@@ -60,7 +51,7 @@ API](https://fetch.spec.whatwg.org/). Next, the bytes are compiled using
 `WebAssembly.compile` or `WebAssembly.compileStreaming` into a
 `WebAssembly.Module`. This module is not yet executable, but WebAssembly
 implementations may choose to translate the WebAssembly code into machine code
-at this step (Chrome does this, WebKit does not). Finally, a WebAssembly module
+at this step. Finally, a WebAssembly module
 is combined with an _import object_ using `WebAssembly.instantiate` to create an
 `WebAssembly.Instance` object. The import object, broadly, defines the
 capabilities of the resulting instance, optionally including a
@@ -85,10 +76,10 @@ synchronously creates a `WebAssembly.Module` from WebAssembly bytes. This is a
 synchronous version of `WebAssembly.compile`.
 
 _Risks:_ many implementations will generate machine code at this step, even
-though it is not yet exposed as executable code to the surrounding program. It's
-possible that this code be used to build an exploit by taking advantage of
-another bug in the implementation. This risk is explicitly out of scope for the
-threat model we are working under.
+though it is not yet exposed as executable code to the surrounding program. 
+
+In the future there may be some _compile-time_ imports provided at this stage. In that event, compiling a module 
+shares many of the same risks exposed by instantiating a module -- depending on the exact capabilities defined by such an extension to WebAssembly.
 
 [**`WebAssembly.compile`**](https://webassembly.github.io/spec/js-api/index.html#dom-webassembly-compile)
 provides a `Promise` that resolves to a `WebAssembly.Module` generated from the
@@ -129,8 +120,9 @@ restrictions.
 
 Instantiating `WebAssembly.Module` objects is considered safe.
 Unlike JavaScript `eval`, WebAssembly is capabilities-based: an instance
-may only access the functionality explicitly supplied to it as imports and cannot
+may only access the functionality explicitly supplied to it as imports and cannot directly
 access ambient state such as the JavaScript global object.
+
 Protecting the JavaScript-supplied imports to a WebAssembly module is orthogonal
 to CSP directives for WebAssembly.
 Thus instantiating `WebAssembly.Module` objects need not be subject to CSP
@@ -224,7 +216,7 @@ new WebAssembly.Table | yes
 new WebAssembly.Memory | yes
 
 
-## Proposed 'wasm-unsafe-eval' Directive
+## Proposed 'wasm-eval' Directive
 
 WebAssembly compilation is less prone to being spoofed in the way
 JavaScript is. Further, WebAssembly has an explicitly specified scope,
@@ -239,11 +231,11 @@ NOTE: Providing a directive to allow JavaScript eval() without WebAssembly
 doesn't seem immediately useful, and so has been left out intentionally.
 
 We propose:
-* Allow the 'wasm-unsafe-eval' directive under each directive that currently
+* Allow the 'wasm-eval' directive under each directive that currently
   supports 'unsafe-eval' (this is currently all directives because
   directives can defer to each other).
 * For the `script-src` directive (directly or by reference),
-  interpret 'wasm-unsafe-eval' to mean
+  interpret 'wasm-eval' to mean
   that all WebAssembly operations should be allowed.
   (Without allowing JavaScript eval()).
 
@@ -270,7 +262,7 @@ Proposed Changes:
 
 The checks performed for web assembly operations is summarized as follows:
 
-Operation | default | no unsafe-eval | with wasm-unsafe-eval | with unsafe-eval and wasm-unsafe-eval 
+Operation | default | no unsafe-eval | with wasm-eval | with unsafe-eval and wasm-eval 
 --- | --- | --- | --- | ---
 JavaScript eval                                  | allow | SRI-hash | SRI-hash | allow
 new WebAssembly.Module(bytes)                    | allow | SRI-hash | allow | allow 
@@ -290,7 +282,7 @@ Where SRI-hash means applying sub-resource-integrity checks based on the hash of
 rejecting the operation if the hash does not match whitelisted hashes,
 and script-src means rejecting operations that are not allowed by the CSP
 policy's directives for the source of scripts, e.g. script-src restricting origins.
-Note that `unsafe-eval` effectively *implies* `wasm-unsafe-eval`.
+Note that `unsafe-eval` effectively *implies* `wasm-eval`.
 ### Examples
 
 ```
