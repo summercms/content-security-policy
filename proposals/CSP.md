@@ -1,27 +1,34 @@
 # WebAssembly Content Security Policy
 
-This proposal describes a recommendation to the WebAppSec WG to extend Content Security Policy
+This note describes a recommendation to the WebAppSec WG to extend Content Security Policy
 (CSP) to support compiling and executing WebAssembly modules.
 
-## Background: Security and WebAssembly
+## Background: WebAssembly, Trust and Safety
 
-WebAssembly has a sandbox-style security model which focuses on limiting the potential damage a WebAssembly module can do to its host environment. This means that a WebAssembly module cannot invoke any functions from the host other than those explicitly passed to it via imports. Similarly, a WebAssembly module cannot directly access the evaluation stack; which also limits the potential for attacks based on buffer-overflows.
+In order for a user to experience the benefits of using a particular WebAssembly module there are three (at least) parties that must collaborate: the browser (or other host environment), the publisher (the author of the WebAssembly module) and the user. Each party seeks some form of guarantee from the other parties that allow that party to trust the others. This trust centric modeling allows us to paint a more accurate picture of WebAssembly security.
 
-This does not, however, provide any guarantees that WebAssembly modules compute correct results: it is still possible that an incorrectly programmed module may corrupt data, produce invalid results and be subject to buffer-overflows that corrupt memory. Since the memory used by a WebAssembly module may be shared via ArrayBuffers and SharedArrayBuffers these faults may be visible to and affect other WebAssembly and JavaScript modules that also share the same memory. Other memory faults - such as use-after-free and accessing uninitialized memory - are also similarly not protected against.
+### WebAssembly Sandbox
 
-In addition, the security model does not manage _which_ WebAssembly modules are executed; a malicious module may be completely safe in terms of the resources from the host that it uses and still cause significant harm to the user. Controlling which WebAssembly modules are executed is the primary focus of this note.
+WebAssembly has a sandbox-style security model which focuses on limiting the potential damage a WebAssembly module can do to its host environment. For example, a WebAssembly module is not permitted to access any functions from the host other than those explicitly passed to it via imports. Similarly, a WebAssembly module cannot directly access the evaluation stack; which also limits the potential for attacks based on manipulating return addresses and other important stack data.
 
-### CSP Threat Model and Use Cases
+By imposing this sandbox on the execution of a WebAssembly model, the browser (or other host) gains sufficient trust that browser is willing to permit the WebAssembly code to execute.
 
-CSP, broadly, allows developers to control what resources can be loaded as part
-of a site. These resources can include images, audio, video, or scripts. Loading
-untrusted resources can lead to a variety of undesirable outcomes. Malicious
-scripts could exfiltrate data from the site. Images could display misleading or
+This does not, however, provide any guarantees that WebAssembly modules compute correct results: it is still possible that an incorrectly programmed module may corrupt data, produce invalid results and be subject to buffer-overflows that corrupt memory. Since the memory used by a WebAssembly module may be shared via ArrayBuffers these faults may be visible to and affect other WebAssembly and JavaScript modules that also share the same memory. Other memory faults - such as use-after-free and accessing uninitialized memory - are also similarly not protected against. 
+
+We should also note that a malicious module may be completely safe in terms of the resources from the host that it uses and still cause significant harm to the user.
+
+In addition, the sandbox model does not manage _which_ WebAssembly modules are executed. Controlling which WebAssembly modules are executed is the primary focus of CSP.
+
+### CSP Resource Control
+
+CSP, broadly, allows a publisher to control what resources can be loaded as part
+of a site. These resources can include images, audio, video, or scripts. In particular, a suitable CSP allows the publisher to declare to the host which WebAssembly modules may be executed by the browser on behalf of the user.
+
+It is important to manage this as malicious WebAssembly modules could exfiltrate data from the site. Images could display misleading or
 incorrect information. Fetching resources leaks information about the user to
-untrusted third parties. [
+untrusted third parties.
 
-This document describes a recommendation for how policy for handling
-WebAssembly resources (modules) can be incorporated into CSP.
+Viewed in terms of _trust_ modeling, the CSP allows the content publisher to establish a trust contract with the browser -- and therefore be willing to let the browser execute the publisher's code. It does not, however, address the trust that a user must express when accessing functionality from a WebAssembly module. This is crucially important; however, it is also beyond the scope of this note.
 
 ### Out of Scope Threats
 
@@ -36,14 +43,7 @@ WebAssembly resources (modules) can be incorporated into CSP.
 
 ## WebAssembly and CSP
 
-Rather than focusing on the risks associated with imports and shared memory, CSP
-allows developers to manage what code they are willing to run on their site. CSP will be
-used to define what sources for Wasm bytes are trusted to instantiate and run.
-
-### Summary of WebAssembly APIs and Their Risks
-
-This section introduces the APIs provided by WebAssembly that are relevant to
-Content Security Policy.
+There is no direct equivalent of a `script` element tag for WebAssembly modules; although it is possible that such an element tag may be specified in the future. Instead, WebAssembly modules are compiled and instantiated via a JavaScript API. Thus our focus on CSP for WebAssembly is on that API.
 
 Executing WebAssembly has several steps. First there are the raw WebAssembly
 bytes, which typically are loaded using the [fetch
@@ -110,6 +110,9 @@ the operations behind `WebAssembly.compileStreaming` on these bytes and then
 creates a `WebAssembly.Instance`.
 
 _Risks:_ equivalent to `WebAssembly.instantiate`.
+
+### The `HostEnsureCanCompileWasmBytes` and `HostEnsureCanCompileWasmResponse` Policy Points
+
 
 ### Recommended Application of CSP
 
